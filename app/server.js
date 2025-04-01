@@ -7,16 +7,17 @@ const PORT = process.env.PORT || 3000;
 
 async function scrapeInvoiceData(invoiceUrl, sheet2, sheet3) {
     console.log(`Starting scraping process for: ${invoiceUrl}`);
-    const browser = await puppeteer.launch({ headless: false, args: ['--no-sandbox'] });
+
+    const browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox'] });
     const page = await browser.newPage();
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
 
     console.log("Navigating to invoice page...");
     await page.goto(invoiceUrl, { waitUntil: 'networkidle2' });
 
+    console.log("Extracting invoice summary...");
     await page.waitForSelector('table');
 
-    console.log("Extracting invoice data...");
     const invoiceData = await page.$$eval("table tr", rows => {
         return rows.slice(1, 2).map(row => {
             const cells = row.querySelectorAll("td");
@@ -30,15 +31,24 @@ async function scrapeInvoiceData(invoiceUrl, sheet2, sheet3) {
         })[0];
     });
 
+    if (!invoiceData.businessName) {
+        console.error("❌ Failed to extract invoice details. Skipping...");
+        await browser.close();
+        return;
+    }
+
     await sheet2.addRow(Object.values(invoiceData));
-    console.log("Invoice data extracted and added to Sheet2:", invoiceData);
+    console.log("✅ Invoice data extracted and added to Sheet2:", invoiceData);
 
     console.log("Checking for 'Read More' button...");
     const readMoreButton = await page.$('.read-more');
+
     if (readMoreButton) {
         console.log("Clicking 'Read More' button...");
-        await page.evaluate(() => document.querySelector('.read-more').click());
-        await page.waitForTimeout(2000);
+        await readMoreButton.click();
+        await page.waitForTimeout(3000);
+    } else {
+        console.log("⚠️ 'Read More' button not found, continuing with available data.");
     }
 
     console.log("Extracting invoice items...");
@@ -56,8 +66,8 @@ async function scrapeInvoiceData(invoiceUrl, sheet2, sheet3) {
         });
     });
 
-    for (const item of invoiceItems) {
-        await sheet3.addRow([
+    if (invoiceItems.length > 0) {
+        const rows = invoiceItems.map(item => [
             invoiceData.businessName,
             invoiceData.invoiceNumber,
             item.itemName,
@@ -67,11 +77,15 @@ async function scrapeInvoiceData(invoiceUrl, sheet2, sheet3) {
             item.beforeVAT,
             item.vat
         ]);
+
+        await sheet3.addRows(rows);
+        console.log(`✅ ${invoiceItems.length} invoice items extracted and added to Sheet3.`);
+    } else {
+        console.log("⚠️ No invoice items found.");
     }
-    console.log("Invoice items extracted and added to Sheet3:", invoiceItems);
 
     await browser.close();
-    console.log("Scraping process completed for:", invoiceUrl);
+    console.log("✅ Scraping completed for:", invoiceUrl);
 }
 
 async function main() {
@@ -88,6 +102,11 @@ async function main() {
     const rows = await sheet1.getRows();
     const invoiceLinks = rows.map(row => row._rawData[0]).filter(link => link);
 
+    if (invoiceLinks.length === 0) {
+        console.log("⚠️ No invoice links found in Sheet1. Exiting...");
+        return;
+    }
+
     for (const link of invoiceLinks) {
         await scrapeInvoiceData(link, sheet2, sheet3);
     }
@@ -100,7 +119,7 @@ app.get('/start-scraping', async (req, res) => {
 });
 
 app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+    console.log(`🚀 Server running on port ${PORT}`);
 });
 
 main().catch(console.error);
