@@ -36,7 +36,7 @@ jobs:
       - name: Ensure Base64 Encoding (If Needed)
         run: echo "${{ secrets.CREDENTIALS_JSON }}" | base64 > credentials.b64
     
-      - name: Deploy to Cloud Run 
+        - name: Deploy to Cloud Run 
         run: |
           gcloud run deploy qsr-invoice \
             --image docker.io/${{ secrets.DOCKER_HUB_USERNAME }}/qsr-invoice:${{ github.sha }} \
@@ -46,4 +46,4 @@ jobs:
             --quiet \
             --timeout=300 \
             --port 8080 \
-            --set-env-vars GOOGLE_APPLICATION_CREDENTIALS_BASE64="${{ secrets.CREDENTIALS_JSON }}",SHEET_ID="${{ secrets.SHEET_ID }}"
+            --set-env-vars PORT=8080,GOOGLE_APPLICATION_CREDENTIALS_BASE64="${{ secrets.CREDENTIALS_JSON }}",SHEET_ID="${{ secrets.SHEET_ID }}"
