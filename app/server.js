@@ -44,9 +44,7 @@ app.get('/scrape', async (req, res) => {
         });
 
         const rows = data.values;
-        let extractedData = [];
         let currentRowSheet2 = 2;
-        let currentRowSheet3 = 2;
 
         for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
             const invoiceLink = rows[rowIndex][0];
@@ -80,17 +78,13 @@ app.get('/scrape', async (req, res) => {
                 const itemBlocks = document.querySelectorAll(".invoice-item");
             
                 itemBlocks.forEach((block) => {
-                    // Extract item name, unit price, and total price from .invoice-item-heading
                     const itemName = block.querySelector('.invoice-item-title')?.innerText.trim() || 'N/A';
                     const unitPrice = block.querySelector('.invoice-item-unit-price')?.innerText.replace(' LEK', '').trim() || '0';
                     const totalPrice = block.querySelector('.invoice-item-price')?.innerText.replace(' LEK', '').trim() || '0';
-            
-                    // Extract quantity, extra detail, and VAT from .invoice-item-details
                     const quantity = block.querySelector('.invoice-item-quantity')?.innerText.trim() || '1';
                     const extraDetail = block.querySelector('.invoice-item-before-vat')?.innerText.replace(' LEK', '').trim() || 'N/A';
                     const vat = block.querySelector('.invoice-item-vat')?.innerText.replace('VAT:', '').trim() || 'N/A';
             
-                    // Push data in the required format
                     items.push([itemName, unitPrice, totalPrice, quantity, extraDetail, vat]);
                 });
             
@@ -104,17 +98,15 @@ app.get('/scrape', async (req, res) => {
                 continue;
             }
 
-            const updateValuesSheet2 = invoiceData.map(item => [null, null, ...item]);
+            const updateValuesSheet2 = invoiceData.map(item => [...item]);
 
             await sheets.spreadsheets.values.update({
                 spreadsheetId: sheetId,
-                range: `Sheet2!C${currentRowSheet2}:I${currentRowSheet2 + updateValuesSheet2.length - 1}`,
+                range: `Sheet2!C${currentRowSheet2}:H${currentRowSheet2 + updateValuesSheet2.length - 1}`,
                 valueInputOption: 'RAW',
                 resource: { values: updateValuesSheet2 }
             });
             currentRowSheet2 += updateValuesSheet2.length;
-
-            extractedData.push(invoiceData);
         }
 
         await browser.close();
