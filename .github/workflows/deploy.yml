@@ -32,7 +32,7 @@ jobs:
 
       - name: Debug Base64 Credentials
         run: echo "${{ secrets.CREDENTIALS_JSON }}" | base64 --decode | jq .
-    
+        
       - name: Ensure Base64 Encoding (If Needed)
         run: echo "${{ secrets.CREDENTIALS_JSON }}" | base64 > credentials.b64
     
