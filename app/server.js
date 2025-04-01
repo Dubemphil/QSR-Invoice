@@ -1,127 +1,117 @@
-const express = require('express');
-const { google } = require('googleapis');
 const puppeteer = require('puppeteer');
-const dotenv = require('dotenv');
+const { GoogleSpreadsheet } = require('google-spreadsheet');
+const express = require('express');
 
-dotenv.config();
+// Initialize Express app
+const app = express();
+const PORT = process.env.PORT || 3000;
 
-if (!process.env.GOOGLE_APPLICATION_CREDENTIALS_BASE64) {
-    console.error("❌ GOOGLE_APPLICATION_CREDENTIALS_BASE64 is not set.");
-    process.exit(1);
+// Function to scrape invoice data
+async function scrapeInvoiceData(invoiceUrl, sheet2, sheet3) {
+    console.log(`Starting scraping process for: ${invoiceUrl}`);
+    const browser = await puppeteer.launch({ headless: true });
+    const page = await browser.newPage();
+    
+    console.log("Navigating to invoice page...");
+    await page.goto(invoiceUrl, { waitUntil: 'networkidle2' });
+
+    // Extract invoice data (Sheet2)
+    console.log("Extracting invoice data...");
+    const invoiceData = await page.evaluate(() => {
+        const getText = (selector) => {
+            const element = document.querySelector(selector);
+            return element ? element.innerText.trim() : '';
+        };
+
+        return {
+            businessName: getText('table tr:nth-child(2) td:nth-child(1)'),
+            invoiceNumber: getText('table tr:nth-child(2) td:nth-child(2)'),
+            grandTotal: getText('table tr:nth-child(2) td:nth-child(3)'),
+            vat: getText('table tr:nth-child(2) td:nth-child(4)'),
+            invoiceType: getText('table tr:nth-child(2) td:nth-child(5)')
+        };
+    });
+
+    await sheet2.addRow([invoiceData.businessName, invoiceData.invoiceNumber, invoiceData.grandTotal, invoiceData.vat, invoiceData.invoiceType]);
+    console.log("Invoice data extracted and added to Sheet2:", invoiceData);
+
+    // Handle 'Read more' if present
+    console.log("Checking for 'Read More' button...");
+    const readMoreButton = await page.$('.read-more');
+    if (readMoreButton) {
+        console.log("Clicking 'Read More' button...");
+        await readMoreButton.click();
+        await page.waitForTimeout(2000); // Wait for new content to load
+    }
+
+    // Extract invoice items (Sheet3)
+    console.log("Extracting invoice items...");
+    const invoiceItems = await page.evaluate(() => {
+        return Array.from(document.querySelectorAll('li.invoice-item')).map(item => {
+            const getText = (el, selector) => {
+                const element = el.querySelector(selector);
+                return element ? element.innerText.trim() : '';
+            };
+            return {
+                itemName: getText(item, '.invoice-item-title'),
+                unitPrice: getText(item, '.invoice-item-unit-price'),
+                quantity: getText(item, '.invoice-item-quantity'),
+                totalPrice: getText(item, '.invoice-item-price'),
+                beforeVAT: getText(item, '.invoice-item-before-vat'),
+                vat: getText(item, '.invoice-item-vat')
+            };
+        });
+    });
+
+    for (const item of invoiceItems) {
+        await sheet3.addRow([
+            invoiceData.businessName,
+            invoiceData.invoiceNumber,
+            item.itemName,
+            item.unitPrice,
+            item.quantity,
+            item.totalPrice,
+            item.beforeVAT,
+            item.vat
+        ]);
+    }
+    console.log("Invoice items extracted and added to Sheet3:", invoiceItems);
+    
+    await browser.close();
+    console.log("Scraping process completed for:", invoiceUrl);
 }
 
-const credentials = JSON.parse(Buffer.from(process.env.GOOGLE_APPLICATION_CREDENTIALS_BASE64, 'base64').toString('utf-8'));
-const auth = new google.auth.GoogleAuth({
-    credentials,
-    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-});
-google.options({ auth });
+// Main function to execute scraping
+async function main() {
+    console.log("Initializing Google Sheets connection...");
+    const doc = new GoogleSpreadsheet('YOUR_GOOGLE_SHEET_ID');
+    await doc.useServiceAccountAuth(require('./credentials.json'));
+    await doc.loadInfo();
 
-const sheets = google.sheets('v4');
-const app = express();
-const PORT = process.env.PORT || 8080;
+    const sheet1 = doc.sheetsByIndex[0];
+    const sheet2 = doc.sheetsByIndex[1];
+    const sheet3 = doc.sheetsByIndex[2];
 
-app.get('/scrape', async (req, res) => {
-    try {
-        const browser = await puppeteer.launch({ 
-            headless: true,
-            ignoreHTTPSErrors: true,
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-gpu',
-                '--disable-dev-shm-usage',
-                '--disable-software-rasterizer'
-            ]
-        });
-        const page = await browser.newPage();
-        await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9' });
+    console.log("Fetching invoice links from Sheet1...");
+    const rows = await sheet1.getRows();
+    const invoiceLinks = rows.map(row => row._rawData[0]);
 
-        const sheetId = process.env.GOOGLE_SHEET_ID;
-        const { data } = await sheets.spreadsheets.values.get({
-            spreadsheetId: sheetId,
-            range: 'Sheet1!A:A',
-        });
-
-        const rows = data.values;
-        let extractedData = [];
-        let currentRowSheet2 = 2;
-        let currentRowSheet3 = 2;
-
-        for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
-            const invoiceLink = rows[rowIndex][0];
-            if (!invoiceLink || !/^https?:\/\//.test(invoiceLink)) {
-                console.warn(`⚠️ Skipping invalid URL: ${invoiceLink}`);
-                continue;
-            }
-
-            console.log(`🔄 Processing row ${rowIndex + 1} - ${invoiceLink}`);
-
-            let navigationSuccess = false;
-            for (let attempt = 1; attempt <= 3; attempt++) {
-                try {
-                    await page.goto(invoiceLink, { waitUntil: 'networkidle2', timeout: 30000 });
-                    navigationSuccess = true;
-                    break;
-                } catch (navError) {
-                    console.error(`❌ Attempt ${attempt} - Failed to navigate to ${invoiceLink}:`, navError);
-                }
-            }
-
-            if (!navigationSuccess) {
-                console.error(`❌ Skipping ${invoiceLink} after multiple failed attempts`);
-                continue;
-            }
-
-            await new Promise(resolve => setTimeout(resolve, 3000));
-
-            const invoiceData = await page.evaluate(() => {
-                const items = [];
-                const itemBlocks = document.querySelectorAll(".invoice-items-list div");
-
-                itemBlocks.forEach((block) => {
-                    const parts = block.innerText.trim().split('\n');
-                    if (parts.length < 5) return;
-
-                    const itemName = parts[0];
-                    const unitPrice = parts[1].replace(' LEK', '').trim();
-                    const totalPrice = parts[2].replace(' LEK', '').trim();
-                    const quantity = parts[3].trim();
-                    const extraDetail = parts[4].replace(' LEK', '').trim();
-                    const vat = parts[5] ? parts[5].replace('VAT:', '').trim() : 'N/A';
-
-                    items.push([itemName, unitPrice, totalPrice, quantity, extraDetail, vat]);
-                });
-
-                return items;
-            });
-
-            console.log(`✅ Extracted Data for row ${rowIndex + 1}:`, invoiceData);
-
-            if (invoiceData.length === 0) {
-                console.warn(`⚠️ No valid data extracted from ${invoiceLink}`);
-                continue;
-            }
-
-            const updateValuesSheet2 = invoiceData.map(item => [null, null, ...item]);
-
-            await sheets.spreadsheets.values.update({
-                spreadsheetId: sheetId,
-                range: `Sheet2!C${currentRowSheet2}:H${currentRowSheet2 + updateValuesSheet2.length - 1}`,
-                valueInputOption: 'RAW',
-                resource: { values: updateValuesSheet2 }
-            });
-            currentRowSheet2 += updateValuesSheet2.length;
-
-            extractedData.push(invoiceData);
-        }
-
-        await browser.close();
-        res.json({ success: true, message: "Scraping completed", data: extractedData });
-    } catch (error) {
-        console.error("❌ Error during scraping:", error);
-        res.status(500).json({ success: false, message: "Scraping failed", error: error.toString() });
+    for (const link of invoiceLinks) {
+        if (link) await scrapeInvoiceData(link, sheet2, sheet3);
     }
+}
+
+// Express route to trigger scraping
+app.get('/start-scraping', async (req, res) => {
+    console.log("Received request to start scraping...");
+    await main();
+    res.send("Scraping process started. Check logs for progress.");
 });
 
-app.listen(PORT, "0.0.0.0", () => console.log(`✅ Server running on port ${PORT}`));
+// Start Express server
+app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+});
+
+// Execute main function on startup
+main().catch(console.error);
