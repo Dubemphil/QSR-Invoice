@@ -26,13 +26,7 @@ app.get('/scrape', async (req, res) => {
         const browser = await puppeteer.launch({ 
             headless: true,
             ignoreHTTPSErrors: true,
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-gpu',
-                '--disable-dev-shm-usage',
-                '--disable-software-rasterizer'
-            ]
+            args: ['--no-sandbox', '--disable-setuid-sandbox']
         });
         const page = await browser.newPage();
         await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9' });
@@ -44,100 +38,53 @@ app.get('/scrape', async (req, res) => {
         });
 
         const rows = data.values;
-        let extractedData = [];
         let currentRowSheet2 = 2;
         let currentRowSheet3 = 2;
 
         for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
             const invoiceLink = rows[rowIndex][0];
-            if (!invoiceLink || !/^https?:\/\//.test(invoiceLink)) {
-                console.warn(`⚠️ Skipping invalid URL: ${invoiceLink}`);
-                continue;
-            }
+            if (!invoiceLink || !/^https?:\/\//.test(invoiceLink)) continue;
 
             console.log(`🔄 Processing row ${rowIndex + 1} - ${invoiceLink}`);
-
-            let navigationSuccess = false;
-            for (let attempt = 1; attempt <= 3; attempt++) { // Retry mechanism
-                try {
-                    await page.goto(invoiceLink, { waitUntil: 'networkidle2', timeout: 30000 });
-                    navigationSuccess = true;
-                    break;
-                } catch (navError) {
-                    console.error(`❌ Attempt ${attempt} - Failed to navigate to ${invoiceLink}:`, navError);
-                }
-            }
-
-            if (!navigationSuccess) {
-                console.error(`❌ Skipping ${invoiceLink} after multiple failed attempts`);
-                continue;
-            }
-
+            await page.goto(invoiceLink, { waitUntil: 'networkidle2', timeout: 30000 });
             await new Promise(resolve => setTimeout(resolve, 3000));
 
             const invoiceData = await page.evaluate(() => {
-                const getText = (xpath) => {
-                    const element = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-                    return element ? element.innerText.trim().replace('TVSH', 'VAT') : 'N/A';
-                };
-
-                const extractInvoiceNumber = () => {
-                    const fullText = getText('/html/body/app-root/app-verify-invoice/div/section[1]/div/div[1]/h4');
-                    const match = fullText.match(/\d+\/\d+/);
-                    return match ? match[0] : 'N/A';
-                };
+                const getText = (selector) => document.querySelector(selector)?.innerText.trim().replace('TVSH', 'VAT') || 'N/A';
+                const extractInvoiceNumber = () => getText('h4')?.match(/\d+\/\d+/)?.[0] || 'N/A';
 
                 const extractItems = () => {
                     let items = [];
-                    const showMoreBtn = document.querySelector("button.show-more");
-                    if (showMoreBtn) {
-                        showMoreBtn.click();
-                    }
-                    
-                    const itemNodes = document.evaluate("/html/body/app-root/app-verify-invoice/div/section[3]/div/ul/li/ul/li", document, null, XPathResult.ORDERED_NODE_ITERATOR_TYPE, null);
-                    let currentNode = itemNodes.iterateNext();
-                    while (currentNode) {
-                        const itemParts = currentNode.innerText.trim().replace('TVSH', 'VAT').split('\n');
-                        if (itemParts.length >= 3) {
-                            items.push([itemParts[0], itemParts[1], itemParts[2]]);
-                        } else {
-                            items.push([itemParts[0], itemParts[1] || '', '']);
-                        }
-                        currentNode = itemNodes.iterateNext();
-                    }
-                    return items.length > 0 ? items : [['N/A', 'N/A', 'N/A']];
+                    document.querySelector("button.show-more")?.click();
+                    document.querySelectorAll("li.invoice-item").forEach(node => {
+                        items.push([
+                            node.querySelector(".invoice-item--title")?.innerText.trim() || "N/A",
+                            node.querySelector(".invoice-item--quantity")?.innerText.trim() || "N/A",
+                            node.querySelector(".invoice-item--unit-price")?.innerText.trim() || "N/A",
+                            node.querySelector(".invoice-item--before-vat")?.innerText.trim() || "N/A",
+                            node.querySelector(".invoice-item--price")?.innerText.trim() || "N/A",
+                            node.querySelector(".invoice-item--vat")?.innerText.trim() || "N/A"
+                        ]);
+                    });
+                    return items.length ? items : [["N/A", "N/A", "N/A", "N/A", "N/A", "N/A"]];
                 };
 
                 return {
-                    businessName: getText('/html/body/app-root/app-verify-invoice/div/section[1]/div/ul/li[1]'),
+                    businessName: getText('ul > li:first-child'),
                     invoiceNumber: extractInvoiceNumber(),
                     items: extractItems(),
-                    grandTotal: getText('/html/body/app-root/app-verify-invoice/div/section[1]/div/div[2]/h1'),
-                    vat: getText('/html/body/app-root/app-verify-invoice/div/section[1]/div/div[2]/small[2]/strong'),
-                    invoiceType: getText('/html/body/app-root/app-verify-invoice/div/section[2]/div/div/div/div[5]/p')
+                    grandTotal: getText('div h1'),
+                    vat: getText('div small strong'),
+                    invoiceType: getText('div p')
                 };
             });
 
-            console.log(`✅ Extracted Data for row ${rowIndex + 1}:`, invoiceData);
+            console.log(`✅ Extracted Data:`, invoiceData);
+            if (invoiceData.businessName === 'N/A' && invoiceData.invoiceNumber === 'N/A') continue;
 
-            if (invoiceData.businessName === 'N/A' && invoiceData.invoiceNumber === 'N/A') {
-                console.warn(`⚠️ No valid data extracted from ${invoiceLink}`);
-                continue;
-            }
-
-            let updateValuesSheet2 = [];
-            invoiceData.items.forEach(item => {
-                const [itemName, quantity, unitPrice, subtotal, vat] = item;
-                updateValuesSheet2.push([
-                    invoiceData.businessName, 
-                    invoiceData.invoiceNumber, 
-                    itemName, 
-                    quantity, 
-                    unitPrice, 
-                    subtotal, 
-                    vat
-                ]);
-            });
+            let updateValuesSheet2 = invoiceData.items.map(item => [
+                invoiceData.businessName, invoiceData.invoiceNumber, ...item
+            ]);
 
             await sheets.spreadsheets.values.update({
                 spreadsheetId: sheetId,
@@ -146,28 +93,24 @@ app.get('/scrape', async (req, res) => {
                 resource: { values: updateValuesSheet2 }
             });
             currentRowSheet2 += updateValuesSheet2.length;
-            
-            const updateValuesSheet3 = [[
-                invoiceData.businessName,
-                invoiceData.invoiceNumber,
-                invoiceData.grandTotal,
-                invoiceData.vat,
-                invoiceData.invoiceType
-            ]];
 
             await sheets.spreadsheets.values.update({
                 spreadsheetId: sheetId,
                 range: `Sheet3!A${currentRowSheet3}:E${currentRowSheet3}`,
                 valueInputOption: 'RAW',
-                resource: { values: updateValuesSheet3 }
+                resource: { values: [[
+                    invoiceData.businessName,
+                    invoiceData.invoiceNumber,
+                    invoiceData.grandTotal,
+                    invoiceData.vat,
+                    invoiceData.invoiceType
+                ]] }
             });
             currentRowSheet3++;
-
-            extractedData.push(invoiceData);
         }
 
         await browser.close();
-        res.json({ success: true, message: "Scraping completed", data: extractedData });
+        res.json({ success: true, message: "Scraping completed" });
     } catch (error) {
         console.error("❌ Error during scraping:", error);
         res.status(500).json({ success: false, message: "Scraping failed", error: error.toString() });
