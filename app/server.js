@@ -5,13 +5,35 @@ const express = require('express');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Middleware to handle request timeouts
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use((req, res, next) => {
+    res.setTimeout(600000, () => { // 10-minute timeout
+        console.log("Request timed out.");
+        res.status(503).send("Service Unavailable: Request timed out.");
+    });
+    next();
+});
+
 async function scrapeInvoiceData(invoiceUrl, sheet2, sheet3) {
     console.log(`Starting scraping process for: ${invoiceUrl}`);
 
-    const browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox'] });
+    const browser = await puppeteer.launch({
+        headless: true,
+        ignoreHTTPSErrors: true,
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-gpu',
+            '--disable-dev-shm-usage',
+            '--disable-software-rasterizer'
+        ]
+    });
+
     const page = await browser.newPage();
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
-
+    
     console.log("Navigating to invoice page...");
     await page.goto(invoiceUrl, { waitUntil: 'networkidle2' });
 
@@ -39,17 +61,6 @@ async function scrapeInvoiceData(invoiceUrl, sheet2, sheet3) {
 
     await sheet2.addRow(Object.values(invoiceData));
     console.log("✅ Invoice data extracted and added to Sheet2:", invoiceData);
-
-    console.log("Checking for 'Read More' button...");
-    const readMoreButton = await page.$('.read-more');
-
-    if (readMoreButton) {
-        console.log("Clicking 'Read More' button...");
-        await readMoreButton.click();
-        await page.waitForTimeout(3000);
-    } else {
-        console.log("⚠️ 'Read More' button not found, continuing with available data.");
-    }
 
     console.log("Extracting invoice items...");
     const invoiceItems = await page.$$eval('li.invoice-item', items => {
@@ -88,45 +99,15 @@ async function scrapeInvoiceData(invoiceUrl, sheet2, sheet3) {
     console.log("✅ Scraping completed for:", invoiceUrl);
 }
 
-async function main() {
-    console.log("Initializing Google Sheets connection...");
-    const doc = new GoogleSpreadsheet('YOUR_GOOGLE_SHEET_ID');
-    await doc.useServiceAccountAuth(require('./credentials.json'));
-    await doc.loadInfo();
-
-    const sheet1 = doc.sheetsByIndex[0];
-    const sheet2 = doc.sheetsByIndex[1];
-    const sheet3 = doc.sheetsByIndex[2];
-
-    console.log("Fetching invoice links from Sheet1...");
-    const rows = await sheet1.getRows();
-    const invoiceLinks = rows.map(row => row._rawData[0]).filter(link => link);
-
-    if (invoiceLinks.length === 0) {
-        console.log("⚠️ No invoice links found in Sheet1. Exiting...");
-        return;
-    }
-
-    for (const link of invoiceLinks) {
-        await scrapeInvoiceData(link, sheet2, sheet3);
-    }
-}
-
-app.get('/start-scraping', async (req, res) => {
-    console.log("Received request to start scraping...");
-    await main();
-    res.send("Scraping process started. Check logs for progress.");
-});
-
 app.get('/scrape', async (req, res) => {
-    const invoiceUrl = req.query.url;
-    if (!invoiceUrl) {
-        return res.status(400).send("❌ Missing 'url' query parameter.");
-    }
-
-    console.log(`Received request to scrape: ${invoiceUrl}`);
-
     try {
+        const invoiceUrl = req.query.url;
+        if (!invoiceUrl) {
+            return res.status(400).send("❌ Missing 'url' query parameter.");
+        }
+
+        console.log(`Received request to scrape: ${invoiceUrl}`);
+
         const doc = new GoogleSpreadsheet('YOUR_GOOGLE_SHEET_ID');
         await doc.useServiceAccountAuth(require('./credentials.json'));
         await doc.loadInfo();
