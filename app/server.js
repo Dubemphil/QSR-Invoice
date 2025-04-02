@@ -125,11 +125,18 @@ app.get('/scrape', async (req, res) => {
                 continue;
             }
 
-            // Update Sheet2 with invoice items
-            let updateValuesSheet2 = [[invoiceData.businessName, invoiceData.invoiceNumber, ...invoiceData.items[0] || ['', '', '']]];
-            for (let i = 1; i < invoiceData.items.length; i++) {
-                updateValuesSheet2.push([null, null, ...invoiceData.items[i]]);
-            }
+        
+            // Update Sheet2 with invoice items in the same row
+            let updateValuesSheet2 = [
+           [invoiceData.businessName, invoiceData.invoiceNumber, ...invoiceData.items.flat()]  
+            ];
+
+            await sheets.spreadsheets.values.update({
+            spreadsheetId: sheetId,
+            range: `Sheet2!A${currentRowSheet2}:Z${currentRowSheet2}`, // Adjusting for more columns dynamically
+            valueInputOption: 'RAW',
+            resource: { values: updateValuesSheet2 }
+            });
 
             await sheets.spreadsheets.values.update({
                 spreadsheetId: sheetId,
