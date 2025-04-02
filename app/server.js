@@ -55,11 +55,8 @@ app.get('/scrape', async (req, res) => {
 
                 const extractItems = () => {
                     let items = [];
-                    const container = document.querySelector(".invoice-item-list"); // Ensure it's inside this container
-                    if (!container) return [["N/A", "N/A", "N/A", "N/A", "N/A", "N/A"]];
-
-                    container.querySelector("button.show-more")?.click();
-                    container.querySelectorAll("li.invoice-item").forEach(node => {
+                    document.querySelector("button.show-more")?.click();
+                    document.querySelectorAll("li.invoice-item").forEach(node => {
                         items.push([
                             node.querySelector(".invoice-item--title")?.innerText.trim() || "N/A",
                             node.querySelector(".invoice-item--quantity")?.innerText.trim() || "N/A",
@@ -73,7 +70,7 @@ app.get('/scrape', async (req, res) => {
                 };
 
                 return {
-                    businessName: getText('.business-name-selector') || getText('h1, h2, h3, ul > li:first-child'), // Improved business name selector
+                    businessName: getText('ul > li:first-child'),
                     invoiceNumber: extractInvoiceNumber(),
                     items: extractItems(),
                     grandTotal: getText('div h1'),
