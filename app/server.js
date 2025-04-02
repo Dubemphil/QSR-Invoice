@@ -118,4 +118,28 @@ app.get('/start-scraping', async (req, res) => {
     res.send("Scraping process started. Check logs for progress.");
 });
 
+app.get('/scrape', async (req, res) => {
+    const invoiceUrl = req.query.url;
+    if (!invoiceUrl) {
+        return res.status(400).send("❌ Missing 'url' query parameter.");
+    }
+
+    console.log(`Received request to scrape: ${invoiceUrl}`);
+
+    try {
+        const doc = new GoogleSpreadsheet('YOUR_GOOGLE_SHEET_ID');
+        await doc.useServiceAccountAuth(require('./credentials.json'));
+        await doc.loadInfo();
+
+        const sheet2 = doc.sheetsByIndex[1];
+        const sheet3 = doc.sheetsByIndex[2];
+
+        await scrapeInvoiceData(invoiceUrl, sheet2, sheet3);
+        res.send(`✅ Scraping completed for: ${invoiceUrl}`);
+    } catch (error) {
+        console.error("❌ Error during scraping:", error);
+        res.status(500).send("❌ Internal server error.");
+    }
+});
+
 app.listen(PORT, "0.0.0.0", () => console.log(`✅ Server running on port ${PORT}`));

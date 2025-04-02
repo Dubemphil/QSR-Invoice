@@ -39,6 +39,7 @@ WORKDIR /app
 # Copy package.json and package-lock.json first for better caching
 COPY app/package.json app/package-lock.json ./
 
+
 # Clear npm cache to avoid installation issues
 RUN npm cache clean --force && npm install --omit=dev
 
