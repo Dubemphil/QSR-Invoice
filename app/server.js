@@ -118,8 +118,4 @@ app.get('/start-scraping', async (req, res) => {
     res.send("Scraping process started. Check logs for progress.");
 });
 
-app.listen(PORT, () => {
-    console.log(`🚀 Server running on port ${PORT}`);
-});
-
-main().catch(console.error);
+app.listen(PORT, "0.0.0.0", () => console.log(`✅ Server running on port ${PORT}`));
