@@ -124,16 +124,11 @@ app.get('/scrape', async (req, res) => {
                 console.warn(`⚠️ No valid data extracted from ${invoiceLink}`);
                 continue;
             }
-
             let updateValuesSheet2 = [];
-            const chunkSize = 6;
-            
-            for (let i = 0; i < invoiceData.items.length; i += chunkSize) {
-                const chunk = invoiceData.items.slice(i, i + chunkSize).flat(); // Get up to 6 items and flatten them
-                while (chunk.length < chunkSize * 3) chunk.push(''); // Ensure empty spaces if fewer than 6 items
-            
-                updateValuesSheet2.push([invoiceData.businessName, invoiceData.invoiceNumber, ...chunk]);
-            }
+
+            invoiceData.items.forEach(item => {
+                updateValuesSheet2.push([invoiceData.businessName, invoiceData.invoiceNumber, ...item]);
+            });
             
             // Write to Google Sheets
             await sheets.spreadsheets.values.update({
@@ -142,6 +137,10 @@ app.get('/scrape', async (req, res) => {
                 valueInputOption: 'RAW',
                 resource: { values: updateValuesSheet2 }
             });
+            
+            // Increment row counter correctly based on the number of items
+            currentRowSheet2 += updateValuesSheet2.length;
+            
             
             // Increment row counter correctly
             currentRowSheet2 += updateValuesSheet2.length;
