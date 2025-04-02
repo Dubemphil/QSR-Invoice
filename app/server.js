@@ -124,25 +124,27 @@ app.get('/scrape', async (req, res) => {
                 console.warn(`⚠️ No valid data extracted from ${invoiceLink}`);
                 continue;
             }
-            let updateValuesSheet2 = [];
 
+            let updateValuesSheet2 = [];
             invoiceData.items.forEach(item => {
-                updateValuesSheet2.push([invoiceData.businessName, invoiceData.invoiceNumber, ...item]);
+                const [itemName, quantity, unitPrice, subtotal, vat] = item;
+                updateValuesSheet2.push([
+                    invoiceData.businessName, 
+                    invoiceData.invoiceNumber, 
+                    itemName, 
+                    quantity, 
+                    unitPrice, 
+                    subtotal, 
+                    vat
+                ]);
             });
-            
-            // Write to Google Sheets
+
             await sheets.spreadsheets.values.update({
                 spreadsheetId: sheetId,
                 range: `Sheet2!A${currentRowSheet2}`,
                 valueInputOption: 'RAW',
                 resource: { values: updateValuesSheet2 }
             });
-            
-            // Increment row counter correctly based on the number of items
-            currentRowSheet2 += updateValuesSheet2.length;
-            
-            
-            // Increment row counter correctly
             currentRowSheet2 += updateValuesSheet2.length;
             
             const updateValuesSheet3 = [[
