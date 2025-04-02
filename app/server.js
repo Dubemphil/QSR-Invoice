@@ -125,19 +125,27 @@ app.get('/scrape', async (req, res) => {
                 continue;
             }
 
-            let updateValuesSheet2 = [[invoiceData.businessName, invoiceData.invoiceNumber]];
-            invoiceData.items.forEach(item => {
-                updateValuesSheet2[0].push(...item);
-            });
-
+            let updateValuesSheet2 = [];
+            const chunkSize = 6;
+            
+            for (let i = 0; i < invoiceData.items.length; i += chunkSize) {
+                const chunk = invoiceData.items.slice(i, i + chunkSize).flat(); // Get up to 6 items and flatten them
+                while (chunk.length < chunkSize * 3) chunk.push(''); // Ensure empty spaces if fewer than 6 items
+            
+                updateValuesSheet2.push([invoiceData.businessName, invoiceData.invoiceNumber, ...chunk]);
+            }
+            
+            // Write to Google Sheets
             await sheets.spreadsheets.values.update({
                 spreadsheetId: sheetId,
                 range: `Sheet2!A${currentRowSheet2}`,
                 valueInputOption: 'RAW',
                 resource: { values: updateValuesSheet2 }
             });
-            currentRowSheet2++;
-
+            
+            // Increment row counter correctly
+            currentRowSheet2 += updateValuesSheet2.length;
+            
             const updateValuesSheet3 = [[
                 invoiceData.businessName,
                 invoiceData.invoiceNumber,
