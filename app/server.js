@@ -125,28 +125,30 @@ app.get('/scrape', async (req, res) => {
                 continue;
             }
 
-        
-            // Update Sheet2 with invoice items in the same row
-            let updateValuesSheet2 = [
-           [invoiceData.businessName, invoiceData.invoiceNumber, ...invoiceData.items.flat()]  
-            ];
+            let updateValuesSheet2 = [];
+            let maxItemsPerRow = 6;
 
-            await sheets.spreadsheets.values.update({
-            spreadsheetId: sheetId,
-            range: `Sheet2!A${currentRowSheet2}:Z${currentRowSheet2}`, // Adjusting for more columns dynamically
-            valueInputOption: 'RAW',
-            resource: { values: updateValuesSheet2 }
-            });
+            for (let i = 0; i < invoiceData.items.length; i += maxItemsPerRow) {
+                let row = [invoiceData.businessName, invoiceData.invoiceNumber];
+                for (let j = 0; j < maxItemsPerRow; j++) {
+                    const itemIndex = i + j;
+                    if (invoiceData.items[itemIndex]) {
+                        row.push(...invoiceData.items[itemIndex]);
+                    } else {
+                        row.push('', '', '');
+                    }
+                }
+                updateValuesSheet2.push(row);
+            }
 
             await sheets.spreadsheets.values.update({
                 spreadsheetId: sheetId,
-                range: `Sheet2!A${currentRowSheet2}:E${currentRowSheet2 + updateValuesSheet2.length - 1}`,
+                range: `Sheet2!A${currentRowSheet2}:${String.fromCharCode(65 + 2 + maxItemsPerRow * 3)}${currentRowSheet2 + updateValuesSheet2.length - 1}`,
                 valueInputOption: 'RAW',
                 resource: { values: updateValuesSheet2 }
             });
             currentRowSheet2 += updateValuesSheet2.length;
 
-            // Update Sheet3 with invoice summary
             const updateValuesSheet3 = [[
                 invoiceData.businessName,
                 invoiceData.invoiceNumber,
@@ -162,7 +164,6 @@ app.get('/scrape', async (req, res) => {
                 resource: { values: updateValuesSheet3 }
             });
             currentRowSheet3++;
-
             extractedData.push(invoiceData);
         }
 
