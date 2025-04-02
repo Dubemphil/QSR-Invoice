@@ -39,15 +39,11 @@ WORKDIR /app
 # Copy package.json and package-lock.json first for better caching
 COPY app/package.json app/package-lock.json ./
 
-
 # Clear npm cache to avoid installation issues
 RUN npm cache clean --force && npm install --omit=dev
 
 # Copy the application source code
 COPY app/. .
-
-# Decode the credentials and store them as credentials.json
-RUN echo $GOOGLE_APPLICATION_CREDENTIALS_BASE64 | base64 --decode > /app/credentials.json
 
 # Install Puppeteer explicitly with necessary flags
 RUN npm install puppeteer && \
