@@ -55,7 +55,7 @@ app.get('/scrape', async (req, res) => {
                     return element ? element.innerText.trim().replace('TVSH', 'VAT') : 'N/A';
                 };
 
-                const extractInvoiceNumber = () => getText('/html/body/app-root/app-verify-invoice/div/section[1]/div/div[2]/h1') || 'N/A';
+                const extractInvoiceNumber = () => getText('/html/body/app-root/app-verify-invoice/div/section[1]/div/div[2]/h1/strong') || 'N/A';
 
                 const extractItems = () => {
                     let items = [];
