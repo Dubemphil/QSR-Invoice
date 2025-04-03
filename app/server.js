@@ -51,14 +51,16 @@ app.get('/scrape', async (req, res) => {
 
             const invoiceData = await page.evaluate(() => {
                 const getText = (selector) => document.querySelector(selector)?.innerText.trim().replace('TVSH', 'VAT') || 'N/A';
-                const extractInvoiceNumber = () => getText('h4')?.match(/\d+\/\d+/)?.[0] || 'N/A';
+                const extractInvoiceNumber = () => getText('div.invoice-amount h1') || 'N/A';
 
                 const extractItems = () => {
                     let items = [];
                     document.querySelector("button.show-more")?.click();
                     document.querySelectorAll("li.invoice-item").forEach(node => {
+                        const itemName = node.querySelector(".invoice-item--title")?.innerText.trim() || "N/A";
+                        if (itemName.includes("Numri i Artikujve")) return; 
                         items.push([
-                            node.querySelector(".invoice-item--title")?.innerText.trim() || "N/A",
+                            itemName,
                             node.querySelector(".invoice-item--quantity")?.innerText.trim() || "N/A",
                             node.querySelector(".invoice-item--unit-price")?.innerText.trim() || "N/A",
                             node.querySelector(".invoice-item--before-vat")?.innerText.trim() || "N/A",
@@ -70,7 +72,7 @@ app.get('/scrape', async (req, res) => {
                 };
 
                 return {
-                    businessName: getText('ul > li:first-child'),
+                    businessName: getText('.Invoice-basic-info--business-name'),
                     invoiceNumber: extractInvoiceNumber(),
                     items: extractItems(),
                     grandTotal: getText('div h1'),
