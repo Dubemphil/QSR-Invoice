@@ -68,7 +68,7 @@ app.get('/scrape', async (req, res) => {
                             node.querySelector(".invoice-item--vat")?.innerText.trim() || "N/A"
                         ]);
                     });
-                    return items.length ? items : [["N/A", "N/A", "N/A", "N/A", "N/A", "N/A"]];
+                    return items;
                 };
 
                 return {
@@ -84,9 +84,15 @@ app.get('/scrape', async (req, res) => {
             console.log(`✅ Extracted Data:`, invoiceData);
             if (invoiceData.businessName === 'N/A' && invoiceData.invoiceNumber === 'N/A') continue;
 
+            if (invoiceData.items.length === 0) {
+                console.log("⚠️ No items extracted. Adding placeholder row.");
+                invoiceData.items.push(["N/A", "N/A", "N/A", "N/A", "N/A", "N/A"]);
+            }
+
             let updateValuesSheet2 = invoiceData.items.map(item => [
                 invoiceData.businessName, invoiceData.invoiceNumber, ...item
             ]);
+            console.log("📌 Writing to Sheet2: ", updateValuesSheet2);
 
             await sheets.spreadsheets.values.update({
                 spreadsheetId: sheetId,
