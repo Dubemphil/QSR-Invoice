@@ -55,7 +55,7 @@ app.get('/scrape', async (req, res) => {
                     return element ? element.innerText.trim().replace('TVSH', 'VAT') : 'N/A';
                 };
 
-                const extractInvoiceNumber = () => getText('div.invoice-amount h1') || 'N/A';
+                const extractInvoiceNumber = () => getText('//div[contains(@class, "invoice-amount")]//h1') || 'N/A';
 
                 const extractItems = () => {
                     let items = [];
