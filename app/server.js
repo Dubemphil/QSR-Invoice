@@ -72,12 +72,12 @@ app.get('/scrape', async (req, res) => {
                 };
 
                 return {
-                    businessName: getText('.Invoice-basic-info--business-name'),
+                    businessName: getText('/html/body/app-root/app-verify-invoice/div/section[1]/div/ul/li[1]'),
                     invoiceNumber: extractInvoiceNumber(),
                     items: extractItems(),
-                    grandTotal: getText('div h1'),
-                    vat: getText('div small strong'),
-                    invoiceType: getText('div p')
+                    grandTotal: getText('/html/body/app-root/app-verify-invoice/div/section[1]/div/div[2]/h1'),
+                    vat: getText('/html/body/app-root/app-verify-invoice/div/section[1]/div/div[2]/small[2]/strong'),
+                    invoiceType: getText('/html/body/app-root/app-verify-invoice/div/section[2]/div/div/div/div[5]/p')
                 };
             });
 
