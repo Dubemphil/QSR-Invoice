@@ -50,7 +50,11 @@ app.get('/scrape', async (req, res) => {
             await new Promise(resolve => setTimeout(resolve, 3000));
 
             const invoiceData = await page.evaluate(() => {
-                const getText = (selector) => document.querySelector(selector)?.innerText.trim().replace('TVSH', 'VAT') || 'N/A';
+                const getText = (xpath) => {
+                    const element = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+                    return element ? element.innerText.trim().replace('TVSH', 'VAT') : 'N/A';
+                };
+
                 const extractInvoiceNumber = () => getText('div.invoice-amount h1') || 'N/A';
 
                 const extractItems = () => {
