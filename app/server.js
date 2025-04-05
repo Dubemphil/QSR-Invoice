@@ -23,7 +23,7 @@ const PORT = process.env.PORT || 8080;
 
 app.get('/scrape', async (req, res) => {
     try {
-        const browser = await puppeteer.launch({
+        const browser = await puppeteer.launch({ 
             headless: true,
             ignoreHTTPSErrors: true,
             args: ['--no-sandbox', '--disable-setuid-sandbox']
@@ -55,9 +55,15 @@ app.get('/scrape', async (req, res) => {
                     return element ? element.innerText.trim().replace('TVSH', 'VAT') : 'N/A';
                 };
 
+                const cleanInvoiceNumber = (text) => {
+                    if (!text || text === 'N/A') return text;
+                    // Remove common prefixes like "Invoice", "Faturë", etc.
+                    return text.replace(/^(Invoice|Faturë)\s*/i, '').trim();
+                };
+
                 const extractInvoiceNumber = () => {
-                    const rawNumber = getText('/html/body/app-root/app-verify-invoice/div/section[1]/div/div[1]/h4') || 'N/A';
-                    return rawNumber.replace(/\D/g, '') || 'N/A'; // Remove non-digit characters
+                    const rawText = getText('/html/body/app-root/app-verify-invoice/div/section[1]/div/div[1]/h4') || 'N/A';
+                    return cleanInvoiceNumber(rawText);
                 };
 
                 const extractItems = () => {
@@ -96,11 +102,8 @@ app.get('/scrape', async (req, res) => {
                 invoiceData.items.push(["N/A", "N/A", "N/A", "N/A", "N/A", "N/A"]);
             }
 
-            // Prepare data for Sheet2 (Itemized Breakdown)
-            const updateValuesSheet2 = invoiceData.items.map(item => [
-                invoiceData.businessName,
-                invoiceData.invoiceNumber,
-                ...item
+            let updateValuesSheet2 = invoiceData.items.map(item => [
+                invoiceData.businessName, invoiceData.invoiceNumber, ...item
             ]);
             console.log("📌 Writing to Sheet2: ", updateValuesSheet2);
 
@@ -112,20 +115,17 @@ app.get('/scrape', async (req, res) => {
             });
             currentRowSheet2 += updateValuesSheet2.length;
 
-            // Prepare data for Sheet3 (Invoice Summary)
             await sheets.spreadsheets.values.update({
                 spreadsheetId: sheetId,
                 range: `Sheet3!A${currentRowSheet3}:E${currentRowSheet3}`,
                 valueInputOption: 'RAW',
-                resource: {
-                    values: [[
-                        invoiceData.businessName,
-                        invoiceData.invoiceNumber,
-                        invoiceData.grandTotal,
-                        invoiceData.vat,
-                        invoiceData.invoiceType
-                    ]]
-                }
+                resource: { values: [[
+                    invoiceData.businessName,
+                    invoiceData.invoiceNumber,
+                    invoiceData.grandTotal,
+                    invoiceData.vat,
+                    invoiceData.invoiceType
+                ]] }
             });
             currentRowSheet3++;
         }
