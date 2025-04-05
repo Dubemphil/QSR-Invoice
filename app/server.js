@@ -41,9 +41,17 @@ app.get('/scrape', async (req, res) => {
         let currentRowSheet2 = 2;
         let currentRowSheet3 = 2;
 
+        const seenUrls = new Set(); // ✅ Track processed URLs
+
         for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
             const invoiceLink = rows[rowIndex][0];
             if (!invoiceLink || !/^https?:\/\//.test(invoiceLink)) continue;
+
+            if (seenUrls.has(invoiceLink)) {
+                console.log(`⏭️ Skipping duplicate URL: ${invoiceLink}`);
+                continue;
+            }
+            seenUrls.add(invoiceLink);
 
             console.log(`🔄 Processing row ${rowIndex + 1} - ${invoiceLink}`);
             await page.goto(invoiceLink, { waitUntil: 'networkidle2', timeout: 30000 });
@@ -57,7 +65,6 @@ app.get('/scrape', async (req, res) => {
 
                 const cleanInvoiceNumber = (text) => {
                     if (!text || text === 'N/A') return text;
-                    // Remove common prefixes like "Invoice", "Faturë", etc.
                     return text.replace(/^(Invoice|Faturë)\s*/i, '').trim();
                 };
 
