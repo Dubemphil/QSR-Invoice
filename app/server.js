@@ -1,156 +1,138 @@
 const express = require('express');
 const { google } = require('googleapis');
 const puppeteer = require('puppeteer');
-const fs = require('fs');
-const path = require('path');
+const dotenv = require('dotenv');
 
-const app = express();
-const PORT = process.env.PORT || 3000;
+dotenv.config();
 
-app.use(express.json());
-
-const auth = new google.auth.GoogleAuth({
-  keyFile: 'credentials.json',
-  scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-});
-
-const SHEET_ID = 'your-google-sheet-id'; // Replace with your actual Sheet ID
-
-async function updateStatus(sheets, sheetId, rowIndex, status) {
-  await sheets.spreadsheets.values.update({
-    spreadsheetId: sheetId,
-    range: `Sheet1!B${rowIndex}`,
-    valueInputOption: 'RAW',
-    resource: {
-      values: [[status]],
-    },
-  });
+if (!process.env.GOOGLE_APPLICATION_CREDENTIALS_BASE64) {
+    console.error("❌ GOOGLE_APPLICATION_CREDENTIALS_BASE64 is not set.");
+    process.exit(1);
 }
 
+const credentials = JSON.parse(Buffer.from(process.env.GOOGLE_APPLICATION_CREDENTIALS_BASE64, 'base64').toString('utf-8'));
+const auth = new google.auth.GoogleAuth({
+    credentials,
+    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+});
+google.options({ auth });
+
+const sheets = google.sheets('v4');
+const app = express();
+const PORT = process.env.PORT || 8080;
+
+// GET route for testing
+app.get('/scrape', (req, res) => {
+    res.send('Please send a POST request to this endpoint.');
+});
+
+// POST route for scraping
 app.post('/scrape', async (req, res) => {
-  try {
-    const client = await auth.getClient();
-    const sheets = google.sheets({ version: 'v4', auth: client });
+    try {
+        const browser = await puppeteer.launch({ 
+            headless: true,
+            ignoreHTTPSErrors: true,
+            args: ['--no-sandbox', '--disable-setuid-sandbox']
+        });
+        const page = await browser.newPage();
+        await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9' });
 
-    // Fetch URLs and statuses from Sheet1
-    const { data } = await sheets.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID,
-      range: 'Sheet1!A:B',
-    });
-
-    let rows = data.values || [];
-
-    if (rows.length === 0) {
-      return res.json({ success: false, message: "Sheet1 is empty." });
-    }
-
-    const urls = [];
-    const rowMap = {};
-
-    rows.forEach((row, index) => {
-      const url = row[0]?.trim();
-      const status = row[1]?.trim();
-      if (url && /^https?:\/\//.test(url) && status !== '✅ Done') {
-        if (!rowMap[url]) {
-          rowMap[url] = index + 1; // Google Sheets rows are 1-indexed
-          urls.push(url);
-        }
-      }
-    });
-
-    if (urls.length === 0) {
-      return res.json({ success: false, message: "No new URLs to process." });
-    }
-
-    const browser = await puppeteer.launch({ headless: true });
-    const page = await browser.newPage();
-
-    const sheet2Data = [['Business Name', 'Invoice Number', 'Grand Total', 'VAT', 'Invoice Type']];
-    const sheet3Data = [['Invoice ID', 'Item Name', 'Quantity', 'Unit Price', 'Total Price', 'Discount']];
-
-    for (const url of urls) {
-      try {
-        await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
-
-        const invoiceData = await page.evaluate(() => {
-          const getText = (selector) => document.querySelector(selector)?.innerText.trim() || '';
-          return {
-            businessName: getText('.business-name'),
-            invoiceNumber: getText('.invoice-number'),
-            grandTotal: getText('.grand-total'),
-            vat: getText('.vat'),
-            invoiceType: getText('.invoice-type'),
-            items: Array.from(document.querySelectorAll('.item-row')).map(item => ({
-              itemName: item.querySelector('.item-name')?.innerText.trim() || '',
-              quantity: item.querySelector('.item-quantity')?.innerText.trim() || '',
-              unitPrice: item.querySelector('.item-unit-price')?.innerText.trim() || '',
-              totalPrice: item.querySelector('.item-total-price')?.innerText.trim() || '',
-              discount: item.querySelector('.item-discount')?.innerText.trim() || '',
-            })),
-          };
+        const sheetId = process.env.GOOGLE_SHEET_ID;
+        const { data } = await sheets.spreadsheets.values.get({
+            spreadsheetId: sheetId,
+            range: 'Sheet1!B:B',
         });
 
-        if (!invoiceData.invoiceNumber) {
-          console.log(`⚠️ No invoice data found at: ${url}`);
-          continue;
+        const rows = data.values;
+        let currentRowSheet2 = 2;
+        let currentRowSheet3 = 2;
+
+        for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+            const invoiceLink = rows[rowIndex][0];
+            if (!invoiceLink || !/^https?:\/\//.test(invoiceLink)) continue;
+
+            console.log(`🔄 Processing row ${rowIndex + 1} - ${invoiceLink}`);
+            await page.goto(invoiceLink, { waitUntil: 'networkidle2', timeout: 30000 });
+            await new Promise(resolve => setTimeout(resolve, 3000));
+
+            const invoiceData = await page.evaluate(() => {
+                const getText = (xpath) => {
+                    const element = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+                    return element ? element.innerText.trim().replace('TVSH', 'VAT') : 'N/A';
+                };
+
+                const extractInvoiceNumber = () => getText('/html/body/app-root/app-verify-invoice/div/section[1]/div/div[1]/h4') || 'N/A';
+
+                const extractItems = () => {
+                    let items = [];
+                    document.querySelector("button.show-more")?.click();
+                    document.querySelectorAll("li.invoice-item").forEach(node => {
+                        const itemName = node.querySelector(".invoice-item--title")?.innerText.trim() || "N/A";
+                        if (itemName.includes("Numri i Artikujve")) return; 
+                        items.push([
+                            itemName,
+                            node.querySelector(".invoice-item--quantity")?.innerText.trim() || "N/A",
+                            node.querySelector(".invoice-item--unit-price")?.innerText.trim() || "N/A",
+                            node.querySelector(".invoice-item--before-vat")?.innerText.trim() || "N/A",
+                            node.querySelector(".invoice-item--price")?.innerText.trim() || "N/A",
+                            node.querySelector(".invoice-item--vat")?.innerText.trim() || "N/A"
+                        ]);
+                    });
+                    return items;
+                };
+
+                return {
+                    businessName: getText('/html/body/app-root/app-verify-invoice/div/section[1]/div/ul/li[1]'),
+                    invoiceNumber: extractInvoiceNumber(),
+                    items: extractItems(),
+                    grandTotal: getText('/html/body/app-root/app-verify-invoice/div/section[1]/div/div[2]/h1'),
+                    vat: getText('/html/body/app-root/app-verify-invoice/div/section[1]/div/div[2]/small[2]/strong'),
+                    invoiceType: getText('/html/body/app-root/app-verify-invoice/div/section[2]/div/div/div/div[5]/p')
+                };
+            });
+
+            console.log(`✅ Extracted Data:`, invoiceData);
+            if (invoiceData.businessName === 'N/A' && invoiceData.invoiceNumber === 'N/A') continue;
+
+            if (invoiceData.items.length === 0) {
+                console.log("⚠️ No items extracted. Adding placeholder row.");
+                invoiceData.items.push(["N/A", "N/A", "N/A", "N/A", "N/A", "N/A"]);
+            }
+
+            let updateValuesSheet2 = invoiceData.items.map(item => [
+                invoiceData.businessName, invoiceData.invoiceNumber, ...item
+            ]);
+            console.log("📌 Writing to Sheet2: ", updateValuesSheet2);
+
+            await sheets.spreadsheets.values.update({
+                spreadsheetId: sheetId,
+                range: `Sheet2!A${currentRowSheet2}`,
+                valueInputOption: 'RAW',
+                resource: { values: updateValuesSheet2 }
+            });
+            currentRowSheet2 += updateValuesSheet2.length;
+
+            await sheets.spreadsheets.values.update({
+                spreadsheetId: sheetId,
+                range: `Sheet3!A${currentRowSheet3}:E${currentRowSheet3}`,
+                valueInputOption: 'RAW',
+                resource: { values: [[
+                    invoiceData.businessName,
+                    invoiceData.invoiceNumber,
+                    invoiceData.grandTotal,
+                    invoiceData.vat,
+                    invoiceData.invoiceType
+                ]] }
+            });
+            currentRowSheet3++;
         }
 
-        const invoiceId = invoiceData.invoiceNumber;
-        sheet2Data.push([
-          invoiceData.businessName,
-          invoiceData.invoiceNumber,
-          invoiceData.grandTotal,
-          invoiceData.vat,
-          invoiceData.invoiceType,
-        ]);
-
-        invoiceData.items.forEach(item => {
-          sheet3Data.push([
-            invoiceId,
-            item.itemName,
-            item.quantity,
-            item.unitPrice,
-            item.totalPrice,
-            item.discount,
-          ]);
-        });
-
-        // ✅ Mark as processed
-        await updateStatus(sheets, SHEET_ID, rowMap[url], '✅ Done');
-
-      } catch (err) {
-        console.error(`Error processing ${url}:`, err);
-        // Optional: you can mark as "Failed" if you want
-        await updateStatus(sheets, SHEET_ID, rowMap[url], '❌ Failed');
-      }
+        await browser.close();
+        res.json({ success: true, message: "Scraping completed" });
+    } catch (error) {
+        console.error("❌ Error during scraping:", error);
+        res.status(500).json({ success: false, message: "Scraping failed", error: error.toString() });
     }
-
-    await browser.close();
-
-    // Write to Sheet2
-    await sheets.spreadsheets.values.update({
-      spreadsheetId: SHEET_ID,
-      range: 'Sheet2!A1',
-      valueInputOption: 'RAW',
-      resource: { values: sheet2Data },
-    });
-
-    // Write to Sheet3
-    await sheets.spreadsheets.values.update({
-      spreadsheetId: SHEET_ID,
-      range: 'Sheet3!A1',
-      valueInputOption: 'RAW',
-      resource: { values: sheet3Data },
-    });
-
-    res.json({ success: true, message: 'Scraping completed successfully.' });
-
-  } catch (error) {
-    console.error('Error in /scrape route:', error);
-    res.status(500).json({ success: false, message: 'Error occurred.', error: error.message });
-  }
 });
 
-app.listen(PORT, () => {
-  console.log(`✅ Server is running on port ${PORT}`);
-});
+app.listen(PORT, "0.0.0.0", () => console.log(`✅ Server running on port ${PORT}`));
