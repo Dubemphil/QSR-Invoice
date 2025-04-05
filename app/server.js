@@ -21,13 +21,7 @@ const sheets = google.sheets('v4');
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-// GET route for testing
-app.get('/scrape', (req, res) => {
-    res.send('Please send a POST request to this endpoint.');
-});
-
-// POST route for scraping
-app.post('/scrape', async (req, res) => {
+app.get('/scrape', async (req, res) => {
     try {
         const browser = await puppeteer.launch({ 
             headless: true,
@@ -43,12 +37,24 @@ app.post('/scrape', async (req, res) => {
             range: 'Sheet1!B:B',
         });
 
-        const rows = data.values;
+        let rows = data.values || [];
+        // Flatten, remove empty, and filter unique URLs
+        const urlSet = new Set();
+        rows = rows
+            .map(row => row[0]?.trim())
+            .filter(url => url && /^https?:\/\//.test(url) && !urlSet.has(url) && urlSet.add(url));
+
+        if (rows.length === 0) {
+            console.log("⚠️ No valid or unique URLs found in Sheet1.");
+            res.json({ success: false, message: "No unique URLs to process." });
+            return;
+        }
+
         let currentRowSheet2 = 2;
         let currentRowSheet3 = 2;
 
         for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
-            const invoiceLink = rows[rowIndex][0];
+            const invoiceLink = rows[rowIndex];
             if (!invoiceLink || !/^https?:\/\//.test(invoiceLink)) continue;
 
             console.log(`🔄 Processing row ${rowIndex + 1} - ${invoiceLink}`);
