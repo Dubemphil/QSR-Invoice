@@ -32,6 +32,8 @@ app.get('/scrape', async (req, res) => {
         await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9' });
 
         const sheetId = process.env.GOOGLE_SHEET_ID;
+
+        // Fetch the URLs already processed in Sheet1 column B
         const { data } = await sheets.spreadsheets.values.get({
             spreadsheetId: sheetId,
             range: 'Sheet1!B:B',
@@ -44,9 +46,20 @@ app.get('/scrape', async (req, res) => {
             .map(row => row[0]?.trim())
             .filter(url => url && /^https?:\/\//.test(url) && !urlSet.has(url) && urlSet.add(url));
 
+        // Fetch already processed URLs from Sheet2 or another column (e.g., Sheet1 column C or a separate "Processed URLs" sheet)
+        const { processedData } = await sheets.spreadsheets.values.get({
+            spreadsheetId: sheetId,
+            range: 'Sheet2!A:A',  // Assuming processed URLs are stored in column A of Sheet2
+        });
+
+        const processedUrls = new Set(processedData?.values?.map(row => row[0]?.trim()));
+
+        // Filter out URLs that have already been processed
+        rows = rows.filter(url => !processedUrls.has(url));
+
         if (rows.length === 0) {
-            console.log("⚠️ No valid or unique URLs found in Sheet1.");
-            res.json({ success: false, message: "No unique URLs to process." });
+            console.log("⚠️ No valid or unique URLs found in Sheet1 or all URLs have already been processed.");
+            res.json({ success: false, message: "No new unique URLs to process." });
             return;
         }
 
@@ -131,6 +144,14 @@ app.get('/scrape', async (req, res) => {
                 ]] }
             });
             currentRowSheet3++;
+
+            // Update processed URLs to Sheet2 after scraping
+            await sheets.spreadsheets.values.append({
+                spreadsheetId: sheetId,
+                range: 'Sheet2!A:A',
+                valueInputOption: 'RAW',
+                resource: { values: [[invoiceLink]] }
+            });
         }
 
         await browser.close();
