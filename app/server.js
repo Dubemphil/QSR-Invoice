@@ -55,14 +55,23 @@ app.get('/scrape', async (req, res) => {
                     return element ? element.innerText.trim().replace('TVSH', 'VAT') : 'N/A';
                 };
 
-                const extractInvoiceNumber = () => getText('/html/body/app-root/app-verify-invoice/div/section[1]/div/div[1]/h4') || 'N/A';
+                const cleanInvoiceNumber = (text) => {
+                    if (!text || text === 'N/A') return text;
+                    // Remove common prefixes like "Invoice", "Faturë", etc.
+                    return text.replace(/^(Invoice|Faturë)\s*/i, '').trim();
+                };
+
+                const extractInvoiceNumber = () => {
+                    const rawText = getText('/html/body/app-root/app-verify-invoice/div/section[1]/div/div[1]/h4') || 'N/A';
+                    return cleanInvoiceNumber(rawText);
+                };
 
                 const extractItems = () => {
                     let items = [];
                     document.querySelector("button.show-more")?.click();
                     document.querySelectorAll("li.invoice-item").forEach(node => {
                         const itemName = node.querySelector(".invoice-item--title")?.innerText.trim() || "N/A";
-                        if (itemName.includes("Numri i Artikujve")) return; 
+                        if (itemName.includes("Numri i Artikujve")) return;
                         items.push([
                             itemName,
                             node.querySelector(".invoice-item--quantity")?.innerText.trim() || "N/A",
