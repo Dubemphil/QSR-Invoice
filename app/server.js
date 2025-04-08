@@ -23,7 +23,7 @@ const PORT = process.env.PORT || 8080;
 
 app.get('/scrape', async (req, res) => {
     try {
-        const browser = await puppeteer.launch({ 
+        const browser = await puppeteer.launch({
             headless: true,
             ignoreHTTPSErrors: true,
             args: ['--no-sandbox', '--disable-setuid-sandbox']
@@ -109,9 +109,13 @@ app.get('/scrape', async (req, res) => {
                 invoiceData.items.push(["N/A", "N/A", "N/A", "N/A", "N/A", "N/A"]);
             }
 
-            let updateValuesSheet2 = invoiceData.items.map(item => [
-                invoiceData.businessName, invoiceData.invoiceNumber, ...item
-            ]);
+            // 🔥 Clean LEK from Sheet2 values only
+            const updateValuesSheet2 = invoiceData.items.map(item => [
+                invoiceData.businessName,
+                invoiceData.invoiceNumber,
+                ...item
+            ].map(cell => typeof cell === 'string' ? cell.replace(/LEK/g, '').trim() : cell));
+
             console.log("📌 Writing to Sheet2: ", updateValuesSheet2);
 
             await sheets.spreadsheets.values.update({
@@ -126,13 +130,15 @@ app.get('/scrape', async (req, res) => {
                 spreadsheetId: sheetId,
                 range: `Sheet3!A${currentRowSheet3}:E${currentRowSheet3}`,
                 valueInputOption: 'RAW',
-                resource: { values: [[
-                    invoiceData.businessName,
-                    invoiceData.invoiceNumber,
-                    invoiceData.grandTotal,
-                    invoiceData.vat,
-                    invoiceData.invoiceType
-                ]] }
+                resource: {
+                    values: [[
+                        invoiceData.businessName,
+                        invoiceData.invoiceNumber,
+                        invoiceData.grandTotal,
+                        invoiceData.vat,
+                        invoiceData.invoiceType
+                    ]]
+                }
             });
             currentRowSheet3++;
         }
