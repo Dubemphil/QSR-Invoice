@@ -34,7 +34,7 @@ app.get('/scrape', async (req, res) => {
         const sheetId = process.env.GOOGLE_SHEET_ID;
         const { data } = await sheets.spreadsheets.values.get({
             spreadsheetId: sheetId,
-            range: 'INVOICES LINKS!B:B',
+            range: 'INVOICE LINKS!B:B',
         });
 
         const rows = data.values;
@@ -111,7 +111,6 @@ app.get('/scrape', async (req, res) => {
 
             const clean = (cell) => typeof cell === 'string' ? cell.replace(/LEK/g, '').trim() : cell;
 
-            // 🔥 Clean LEK from PRODUCT DETAILS values
             const updateValuesSheet2 = invoiceData.items.map(item => [
                 clean(invoiceData.businessName),
                 clean(invoiceData.invoiceNumber),
@@ -128,7 +127,6 @@ app.get('/scrape', async (req, res) => {
             });
             currentRowSheet2 += updateValuesSheet2.length;
 
-            // 🔥 Clean LEK from GRAND TOTAL DETAILS values
             await sheets.spreadsheets.values.update({
                 spreadsheetId: sheetId,
                 range: `GRAND TOTAL DETAILS!A${currentRowSheet3}:E${currentRowSheet3}`,
