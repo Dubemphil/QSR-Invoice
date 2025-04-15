@@ -34,7 +34,7 @@ app.get('/scrape', async (req, res) => {
         const sheetId = process.env.GOOGLE_SHEET_ID;
         const { data } = await sheets.spreadsheets.values.get({
             spreadsheetId: sheetId,
-            range: 'INVOICES LINKS!B:B',
+            range: 'INVOICES LINKS!B2:B',
         });
 
         const rows = data.values;
@@ -73,6 +73,11 @@ app.get('/scrape', async (req, res) => {
                     return cleanInvoiceNumber(rawText);
                 };
 
+                const extractDate = () => {
+                    const raw = getText('/html/body/app-root/app-verify-invoice/div/section[1]/div/ul/li[3]');
+                    return raw.split("\n")[0].trim();
+                };
+
                 const extractItems = () => {
                     let items = [];
                     document.querySelector("button.show all")?.click();
@@ -94,6 +99,7 @@ app.get('/scrape', async (req, res) => {
                 return {
                     businessName: getText('/html/body/app-root/app-verify-invoice/div/section[1]/div/ul/li[1]'),
                     invoiceNumber: extractInvoiceNumber(),
+                    invoiceDate: extractDate(),
                     items: extractItems(),
                     grandTotal: getText('/html/body/app-root/app-verify-invoice/div/section[1]/div/div[2]/h1'),
                     vat: getText('/html/body/app-root/app-verify-invoice/div/section[1]/div/div[2]/small[2]/strong'),
@@ -112,6 +118,7 @@ app.get('/scrape', async (req, res) => {
             const clean = (cell) => typeof cell === 'string' ? cell.replace(/LEK/g, '').trim() : cell;
 
             const updateValuesSheet2 = invoiceData.items.map(item => [
+                clean(invoiceData.invoiceDate),
                 clean(invoiceData.businessName),
                 clean(invoiceData.invoiceNumber),
                 ...item.map(clean)
@@ -129,10 +136,11 @@ app.get('/scrape', async (req, res) => {
 
             await sheets.spreadsheets.values.update({
                 spreadsheetId: sheetId,
-                range: `GRAND TOTAL DETAILS!A${currentRowSheet3}:E${currentRowSheet3}`,
+                range: `GRAND TOTAL DETAILS!A${currentRowSheet3}:F${currentRowSheet3}`,
                 valueInputOption: 'RAW',
                 resource: {
                     values: [[
+                        clean(invoiceData.invoiceDate),
                         clean(invoiceData.businessName),
                         clean(invoiceData.invoiceNumber),
                         clean(invoiceData.grandTotal),
