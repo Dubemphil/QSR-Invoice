@@ -34,7 +34,7 @@ app.get('/scrape', async (req, res) => {
         const sheetId = process.env.GOOGLE_SHEET_ID;
         const { data } = await sheets.spreadsheets.values.get({
             spreadsheetId: sheetId,
-            range: 'INVOICES LINKS!B2:B',
+            range: 'INVOICE LINKS!A2:A',
         });
 
         const rows = data.values;
@@ -75,7 +75,7 @@ app.get('/scrape', async (req, res) => {
 
                 const extractDate = () => {
                     const raw = getText('/html/body/app-root/app-verify-invoice/div/section[1]/div/ul/li[3]');
-                    return raw.split("\n")[0].trim();
+                    return raw.split(" ")[0].trim();
                 };
 
                 const extractItems = () => {
