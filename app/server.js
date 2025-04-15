@@ -34,7 +34,7 @@ app.get('/scrape', async (req, res) => {
         const sheetId = process.env.GOOGLE_SHEET_ID;
         const { data } = await sheets.spreadsheets.values.get({
             spreadsheetId: sheetId,
-            range: 'INVOICE LINKS!A2:A',
+            range: 'INVOICE LINKS!B:B',
         });
 
         const rows = data.values;
