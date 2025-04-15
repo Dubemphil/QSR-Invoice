@@ -34,14 +34,14 @@ app.get('/scrape', async (req, res) => {
         const sheetId = process.env.GOOGLE_SHEET_ID;
         const { data } = await sheets.spreadsheets.values.get({
             spreadsheetId: sheetId,
-            range: 'Sheet1!B:B',
+            range: 'INVOICES LINKS!B:B',
         });
 
         const rows = data.values;
         let currentRowSheet2 = 2;
         let currentRowSheet3 = 2;
 
-        const seenUrls = new Set(); // ✅ Track processed URLs
+        const seenUrls = new Set();
 
         for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
             const invoiceLink = rows[rowIndex][0];
@@ -75,7 +75,7 @@ app.get('/scrape', async (req, res) => {
 
                 const extractItems = () => {
                     let items = [];
-                    document.querySelector("button.show-more")?.click();
+                    document.querySelector("button.show all")?.click();
                     document.querySelectorAll("li.invoice-item").forEach(node => {
                         const itemName = node.querySelector(".invoice-item--title")?.innerText.trim() || "N/A";
                         if (itemName.includes("Numri i Artikujve")) return;
@@ -109,18 +109,19 @@ app.get('/scrape', async (req, res) => {
                 invoiceData.items.push(["N/A", "N/A", "N/A", "N/A", "N/A", "N/A"]);
             }
 
-            // 🔥 Clean LEK from Sheet2 values only
-            const updateValuesSheet2 = invoiceData.items.map(item => [
-                invoiceData.businessName,
-                invoiceData.invoiceNumber,
-                ...item
-            ].map(cell => typeof cell === 'string' ? cell.replace(/LEK/g, '').trim() : cell));
+            const clean = (cell) => typeof cell === 'string' ? cell.replace(/LEK/g, '').trim() : cell;
 
-            console.log("📌 Writing to Sheet2: ", updateValuesSheet2);
+            const updateValuesSheet2 = invoiceData.items.map(item => [
+                clean(invoiceData.businessName),
+                clean(invoiceData.invoiceNumber),
+                ...item.map(clean)
+            ]);
+
+            console.log("📌 Writing to PRODUCT DETAILS: ", updateValuesSheet2);
 
             await sheets.spreadsheets.values.update({
                 spreadsheetId: sheetId,
-                range: `Sheet2!A${currentRowSheet2}`,
+                range: `PRODUCT DETAILS!A${currentRowSheet2}`,
                 valueInputOption: 'RAW',
                 resource: { values: updateValuesSheet2 }
             });
@@ -128,15 +129,15 @@ app.get('/scrape', async (req, res) => {
 
             await sheets.spreadsheets.values.update({
                 spreadsheetId: sheetId,
-                range: `Sheet3!A${currentRowSheet3}:E${currentRowSheet3}`,
+                range: `GRAND TOTAL DETAILS!A${currentRowSheet3}:E${currentRowSheet3}`,
                 valueInputOption: 'RAW',
                 resource: {
                     values: [[
-                        invoiceData.businessName,
-                        invoiceData.invoiceNumber,
-                        invoiceData.grandTotal,
-                        invoiceData.vat,
-                        invoiceData.invoiceType
+                        clean(invoiceData.businessName),
+                        clean(invoiceData.invoiceNumber),
+                        clean(invoiceData.grandTotal),
+                        clean(invoiceData.vat),
+                        clean(invoiceData.invoiceType)
                     ]]
                 }
             });
